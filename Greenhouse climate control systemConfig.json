@@ -1,30 +1,57 @@
 {
   "projectName": "Greenhouse climate control system",
-  "projectPath": "C:\\Users\\Cyber\\Greenhouse climate control system",
-  "outputPath": "C:\\Users\\Cyber\\Greenhouse climate control system",
-  "outputName": "",
+
+  "projectPath": ".",
+
+  "outputPath": ".",
+
+  "outputName": "GreenhouseSystem",
+
   "target": "AVR",
-  "mcu": "atmega103",
+
+  "mcu": "atmega32",
+
   "language": "C",
+
   "languageVersion": "C99",
-  "mcuFrequency": "",
+
+  "mcuFrequency": "8",
+
   "frequencyUnit": "MHz",
+
   "sourceFiles": [],
+
   "compilerPath": "",
+
   "optimizationLevel": "O2",
+
   "packStructs": false,
+
   "shortEnums": false,
+
   "functionSections": false,
+
   "dataSections": false,
+
   "linkerScript": "",
-  "includePaths": "",
-  "customFlags": "-Wall -Wextra",
+
+  "includePaths": "Src",
+
+  "customFlags": "-DF_CPU=8000000UL -Wall -Wextra",
+
   "debugLevel": "g2",
+
   "debugFormat": "dwarf-2",
+
   "interfaceType": "SPI",
-  "port": "COM4 - Standard Serial over Bluetooth link (COM4)",
+
+  "port": "",
+
   "baudRate": "115200",
+
   "timeout": "5000",
-  "firmwareFile": "C:\\Users\\Cyber\\Greenhouse climate control system/Greenhouse climate control system.hex",
+
+  "firmwareFile": "GreenhouseSystem.hex",
+
   "programmer": "usbasp"
 }

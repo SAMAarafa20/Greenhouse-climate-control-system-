@@ -1,11 +1,11 @@
-#ifndef BUZZER_PRIVATE_H_
-#define BUZZER_PRIVATE_H_
-
+#ifndef BUZZER_PRIVATE_H
+#define BUZZER_PRIVATE_H
 
 typedef enum
 {
-    BUZZER_SinkConnection,
+    BUZZER_SinkConnection = 0,
     BUZZER_SourceConnection
+
 } Buzzer_ConnectionType_t;
 
-#endif 
+#endif /* BUZZER_PRIVATE_H */

@@ -1,70 +1,92 @@
-/**
- * @file climate_logic.h
- * @brief Application layer header file for climate control logic module.
- * @author Team Leader
- * @date 2026
- * @target ATmega32 (AVR 8-bit)
- */
+#ifndef CLIMATE_LOGIC_H
+#define CLIMATE_LOGIC_H
 
-#ifndef CLIMATE_LOGIC_H_
-#define CLIMATE_LOGIC_H_
-
-/* 1. Core Library Inclusion */
 #include "../Commen/DEFINITIONS.h"
-#include "../Commen/BIT_MATH.h"
 
-/* 2. System Threshold Macros */
-#define TEMP_MAX_THRESHOLD    30   /**< Maximum temperature threshold in Celsius */
-#define TEMP_MIN_THRESHOLD    18   /**< Minimum temperature threshold in Celsius */
-#define MOIST_MIN_THRESHOLD   40   /**< Minimum soil moisture percentage */
+/* Automatic Temperature Hysteresis */
 
-/* 3. System States & Modes Enumerations */
-/**
- * @brief Enumeration for system operating modes.
- */
-typedef enum {
-    MODE_AUTOMATIC = 0, /**< System automatically controls actuators based on sensor data */
-    MODE_MANUAL         /**< System actuators are manually overridden */
+#define AUTO_FAN_ON_TEMP              40U
+#define AUTO_FAN_OFF_TEMP             35U
+
+#define AUTO_HEATER_ON_TEMP           18U
+#define AUTO_HEATER_OFF_TEMP          22U
+
+/* Automatic Moisture Hysteresis */
+
+#define AUTO_PUMP_ON_MOISTURE         35U
+#define AUTO_PUMP_OFF_MOISTURE        55U
+
+/* Critical Alarm Thresholds */
+
+#define CRITICAL_HIGH_TEMP            50U
+#define CRITICAL_LOW_TEMP             10U
+#define CRITICAL_LOW_MOISTURE         10U
+
+/* Sensor Valid Ranges */
+
+#define SENSOR_MAX_TEMPERATURE        100U
+#define SENSOR_MAX_MOISTURE           100U
+
+/* Default Manual Targets */
+
+#define DEFAULT_TARGET_TEMP           25U
+#define DEFAULT_TARGET_MOISTURE       50U
+
+/* Manual Hysteresis */
+
+#define MANUAL_TEMP_TOLERANCE         2U
+#define MANUAL_MOIST_TOLERANCE        5U
+
+/* Allowed Manual Targets */
+
+#define MIN_TARGET_TEMP               10U
+#define MAX_TARGET_TEMP               50U
+
+#define MIN_TARGET_MOISTURE           10U
+#define MAX_TARGET_MOISTURE           90U
+
+typedef enum
+{
+    MODE_STANDBY = 0,
+    MODE_MANUAL,
+    MODE_AUTOMATIC
+
 } SystemMode_t;
 
-/**
- * @brief Enumeration for system status states.
- */
-typedef enum {
-    CLIMATE_OK = 0,              /**< Parameters are within normal ranges */
-    CLIMATE_HIGH_TEMP,           /**< High temperature detected */
-    CLIMATE_LOW_TEMP,            /**< Low temperature detected */
-    CLIMATE_LOW_MOISTURE,        /**< Dry soil detected */
-    CLIMATE_CRITICAL_EMERGENCY   /**< Critical hardware or environmental state */
+typedef enum
+{
+    CLIMATE_OK = 0,
+    CLIMATE_HIGH_TEMP,
+    CLIMATE_LOW_TEMP,
+    CLIMATE_LOW_MOISTURE,
+    CLIMATE_CRITICAL_EMERGENCY,
+    CLIMATE_SENSOR_ERROR
+
 } SystemState_t;
 
-/* 4. Function Prototypes */
-
-/**
- * @brief Initializes the climate control module variables.
- * @return void
- */
 void Climate_vInit(void);
 
-/**
- * @brief Updates actuator states based on sensor inputs.
- * @param[in] Local_u8Temperature Current ambient temperature reading.
- * @param[in] Local_u8Moisture Current soil moisture percentage reading.
- * @return void
- */
-void Climate_vUpdateSystem(u8 Local_u8Temperature, u8 Local_u8Moisture);
+void Climate_vSetMode(
+    SystemMode_t Local_tenuMode);
 
-/**
- * @brief Sets the system operating mode.
- * @param[in] Local_u8Mode Target operating mode (MODE_AUTOMATIC or MODE_MANUAL).
- * @return void
- */
-void Climate_vSetMode(SystemMode_t Local_u8Mode);
+SystemMode_t Climate_tenuGetMode(void);
 
-/**
- * @brief Retrieves current climate system state.
- * @return SystemState_t Current state of the system.
- */
+void Climate_vSetManualTargets(
+    u8 Local_u8TargetTemperature,
+    u8 Local_u8TargetMoisture);
+
+u8 Climate_u8GetTargetTemperature(void);
+
+u8 Climate_u8GetTargetMoisture(void);
+
+void Climate_vUpdateSystem(
+    u8 Local_u8Temperature,
+    u8 Local_u8Moisture);
+
 SystemState_t Climate_tenuGetState(void);
 
-#endif /* CLIMATE_LOGIC_H_ */
+void Climate_vHandleSensorError(void);
+
+void Climate_vStopSystem(void);
+
+#endif /* CLIMATE_LOGIC_H */

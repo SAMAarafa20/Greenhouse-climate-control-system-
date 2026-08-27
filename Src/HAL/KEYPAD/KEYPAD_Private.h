@@ -1,10 +1,7 @@
-#ifndef KEYPAD_PRIVATE_H_
-#define KEYPAD_PRIVATE_H_
+#ifndef KEYPAD_PRIVATE_H
+#define KEYPAD_PRIVATE_H
 
-#define KEYPAD_ROWS   4U
-#define KEYPAD_COLS   4U
+#define KEYPAD_ROWS    4U
+#define KEYPAD_COLS    4U
 
-
-#define KEYPAD_NO_KEY_PRESSED   0xFFU
-
-#endif 
+#endif /* KEYPAD_PRIVATE_H */
