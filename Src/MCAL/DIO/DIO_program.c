@@ -1,211 +1,306 @@
-#include <stdint.h>
+#include "DIO_interface.h"
+#include "DIO_private.h"
 
-#include "../../Commen/DEFINITIONS.h"
 #include "../../Commen/BIT_MATH.h"
 
-#include "DIO_private.h"
-#include "DIO_interface.h"
+#include <stddef.h>
+#include <stdint.h>
 
-void DIO_DirectionSelectforPin(const uint8_t GroupName,
-                               const uint8_t PinNo,
-                               const uint8_t DirectionState)
+void DIO_DisableJTAG(void)
 {
-    if(DirectionState == DIO_Outputfor1Pin)
+    uint8_t Local_u8SREGValue =
+        DIO_SREG_REG;
+
+    /*
+     * Disable Global Interrupt temporarily.
+     */
+    ClearBit(
+        DIO_SREG_REG,
+        DIO_GLOBAL_INTERRUPT_BIT);
+
+    /*
+     * According to the ATmega32 datasheet,
+     * JTD must be written to logic one twice
+     * within four CPU clock cycles.
+     */
+    SetBit(
+        DIO_MCUCSR_REG,
+        DIO_JTD_BIT);
+
+    SetBit(
+        DIO_MCUCSR_REG,
+        DIO_JTD_BIT);
+
+    /*
+     * Restore the previous SREG value.
+     */
+    DIO_SREG_REG =
+        Local_u8SREGValue;
+}
+
+void DIO_DirectionSelectforPin(
+    const uint8_t GroupName,
+    const uint8_t PinNo,
+    const uint8_t DirectionState)
+{
+    if(PinNo <= DIO_Pin7)
     {
-        switch(GroupName)
+        if(DirectionState ==
+           DIO_Outputfor1Pin)
         {
-            case DIO_GroupA:
-                SetBit(DDRA, PinNo);
-                break;
+            switch(GroupName)
+            {
+                case DIO_GroupA:
+                    SetBit(DDRA_REG, PinNo);
+                    break;
 
-            case DIO_GroupB:
-                SetBit(DDRB, PinNo);
-                break;
+                case DIO_GroupB:
+                    SetBit(DDRB_REG, PinNo);
+                    break;
 
-            case DIO_GroupC:
-                SetBit(DDRC, PinNo);
-                break;
+                case DIO_GroupC:
+                    SetBit(DDRC_REG, PinNo);
+                    break;
 
-            case DIO_GroupD:
-                SetBit(DDRD, PinNo);
-                break;
+                case DIO_GroupD:
+                    SetBit(DDRD_REG, PinNo);
+                    break;
 
-            default:
-                /* Error */
-                break;
+                default:
+                    /* Invalid Group */
+                    break;
+            }
+        }
+        else if(DirectionState ==
+                DIO_Inputfor1Pin)
+        {
+            switch(GroupName)
+            {
+                case DIO_GroupA:
+                    ClearBit(DDRA_REG, PinNo);
+                    break;
+
+                case DIO_GroupB:
+                    ClearBit(DDRB_REG, PinNo);
+                    break;
+
+                case DIO_GroupC:
+                    ClearBit(DDRC_REG, PinNo);
+                    break;
+
+                case DIO_GroupD:
+                    ClearBit(DDRD_REG, PinNo);
+                    break;
+
+                default:
+                    /* Invalid Group */
+                    break;
+            }
+        }
+        else
+        {
+            /* Invalid Direction */
         }
     }
-    else if(DirectionState == DIO_Inputfor1Pin)
+    else
+    {
+        /* Invalid Pin */
+    }
+}
+
+void DIO_DirectionSelectforGroup(
+    const uint8_t GroupName,
+    const uint8_t DirectionState)
+{
+    switch(GroupName)
+    {
+        case DIO_GroupA:
+            DDRA_REG = DirectionState;
+            break;
+
+        case DIO_GroupB:
+            DDRB_REG = DirectionState;
+            break;
+
+        case DIO_GroupC:
+            DDRC_REG = DirectionState;
+            break;
+
+        case DIO_GroupD:
+            DDRD_REG = DirectionState;
+            break;
+
+        default:
+            /* Invalid Group */
+            break;
+    }
+}
+
+void DIO_WritePin(
+    const uint8_t GroupName,
+    const uint8_t PinNo,
+    const uint8_t OutputValue)
+{
+    if(PinNo <= DIO_Pin7)
+    {
+        if(OutputValue ==
+           DIO_Highfor1Pin)
+        {
+            switch(GroupName)
+            {
+                case DIO_GroupA:
+                    SetBit(PORTA_REG, PinNo);
+                    break;
+
+                case DIO_GroupB:
+                    SetBit(PORTB_REG, PinNo);
+                    break;
+
+                case DIO_GroupC:
+                    SetBit(PORTC_REG, PinNo);
+                    break;
+
+                case DIO_GroupD:
+                    SetBit(PORTD_REG, PinNo);
+                    break;
+
+                default:
+                    /* Invalid Group */
+                    break;
+            }
+        }
+        else if(OutputValue ==
+                DIO_Lowfor1Pin)
+        {
+            switch(GroupName)
+            {
+                case DIO_GroupA:
+                    ClearBit(PORTA_REG, PinNo);
+                    break;
+
+                case DIO_GroupB:
+                    ClearBit(PORTB_REG, PinNo);
+                    break;
+
+                case DIO_GroupC:
+                    ClearBit(PORTC_REG, PinNo);
+                    break;
+
+                case DIO_GroupD:
+                    ClearBit(PORTD_REG, PinNo);
+                    break;
+
+                default:
+                    /* Invalid Group */
+                    break;
+            }
+        }
+        else
+        {
+            /* Invalid Output Value */
+        }
+    }
+    else
+    {
+        /* Invalid Pin */
+    }
+}
+
+void DIO_WriteGroup(
+    const uint8_t GroupName,
+    const uint8_t OutputValue)
+{
+    switch(GroupName)
+    {
+        case DIO_GroupA:
+            PORTA_REG = OutputValue;
+            break;
+
+        case DIO_GroupB:
+            PORTB_REG = OutputValue;
+            break;
+
+        case DIO_GroupC:
+            PORTC_REG = OutputValue;
+            break;
+
+        case DIO_GroupD:
+            PORTD_REG = OutputValue;
+            break;
+
+        default:
+            /* Invalid Group */
+            break;
+    }
+}
+
+void DIO_ReadPin(
+    const uint8_t GroupName,
+    const uint8_t PinNo,
+    uint8_t *InputState)
+{
+    if((PinNo <= DIO_Pin7) &&
+       (InputState != NULL))
     {
         switch(GroupName)
         {
             case DIO_GroupA:
-                ClearBit(DDRA, PinNo);
+                *InputState =
+                    ReadBit(PINA_REG, PinNo);
                 break;
 
             case DIO_GroupB:
-                ClearBit(DDRB, PinNo);
+                *InputState =
+                    ReadBit(PINB_REG, PinNo);
                 break;
 
             case DIO_GroupC:
-                ClearBit(DDRC, PinNo);
+                *InputState =
+                    ReadBit(PINC_REG, PinNo);
                 break;
 
             case DIO_GroupD:
-                ClearBit(DDRD, PinNo);
+                *InputState =
+                    ReadBit(PIND_REG, PinNo);
                 break;
 
             default:
-                /* Error */
+                /* Invalid Group */
                 break;
         }
     }
     else
     {
-        /* Error */
+        /* Invalid Pin or Null Pointer */
     }
 }
 
-void DIO_DirectionSelectforGroup(const uint8_t GroupName,
-                                 const uint8_t DirectionState)
-{
-    switch(GroupName)
-    {
-        case DIO_GroupA:
-            DDRA = DirectionState;
-            break;
-
-        case DIO_GroupB:
-            DDRB = DirectionState;
-            break;
-
-        case DIO_GroupC:
-            DDRC = DirectionState;
-            break;
-
-        case DIO_GroupD:
-            DDRD = DirectionState;
-            break;
-
-        default:
-            /* Error */
-            break;
-    }
-}
-
-void DIO_WritePin(const uint8_t GroupName,
-                  const uint8_t PinNo,
-                  const uint8_t OutputValue)
-{
-    if(OutputValue == DIO_Highfor1Pin)
-    {
-        switch(GroupName)
-        {
-            case DIO_GroupA:
-                SetBit(PORTA, PinNo);
-                break;
-
-            case DIO_GroupB:
-                SetBit(PORTB, PinNo);
-                break;
-
-            case DIO_GroupC:
-                SetBit(PORTC, PinNo);
-                break;
-
-            case DIO_GroupD:
-                SetBit(PORTD, PinNo);
-                break;
-
-            default:
-                /* Error */
-                break;
-        }
-    }
-    else if(OutputValue == DIO_Lowfor1Pin)
-    {
-        switch(GroupName)
-        {
-            case DIO_GroupA:
-                ClearBit(PORTA, PinNo);
-                break;
-
-            case DIO_GroupB:
-                ClearBit(PORTB, PinNo);
-                break;
-
-            case DIO_GroupC:
-                ClearBit(PORTC, PinNo);
-                break;
-
-            case DIO_GroupD:
-                ClearBit(PORTD, PinNo);
-                break;
-
-            default:
-                /* Error */
-                break;
-        }
-    }
-    else
-    {
-        /* Error */
-    }
-}
-
-void DIO_WriteGroup(const uint8_t GroupName,
-                    const uint8_t OutputValue)
-{
-    switch(GroupName)
-    {
-        case DIO_GroupA:
-            PORTA = OutputValue;
-            break;
-
-        case DIO_GroupB:
-            PORTB = OutputValue;
-            break;
-
-        case DIO_GroupC:
-            PORTC = OutputValue;
-            break;
-
-        case DIO_GroupD:
-            PORTD = OutputValue;
-            break;
-
-        default:
-            /* Error */
-            break;
-    }
-}
-
-void DIO_ReadPin(const uint8_t GroupName,
-                 const uint8_t PinNo,
-                 uint8_t *InputState)
+void DIO_ReadGroup(
+    const uint8_t GroupName,
+    uint8_t *InputState)
 {
     if(InputState != NULL)
     {
         switch(GroupName)
         {
             case DIO_GroupA:
-                *InputState = ReadBit(PINA, PinNo);
+                *InputState = PINA_REG;
                 break;
 
             case DIO_GroupB:
-                *InputState = ReadBit(PINB, PinNo);
+                *InputState = PINB_REG;
                 break;
 
             case DIO_GroupC:
-                *InputState = ReadBit(PINC, PinNo);
+                *InputState = PINC_REG;
                 break;
 
             case DIO_GroupD:
-                *InputState = ReadBit(PIND, PinNo);
+                *InputState = PIND_REG;
                 break;
 
             default:
-                /* Error */
+                /* Invalid Group */
                 break;
         }
     }
@@ -215,89 +310,68 @@ void DIO_ReadPin(const uint8_t GroupName,
     }
 }
 
-void DIO_ReadGroup(const uint8_t GroupName,
-                   uint8_t *InputState)
+void DIO_TogglePin(
+    const uint8_t GroupName,
+    const uint8_t PinNo)
 {
-    if(InputState != NULL)
+    if(PinNo <= DIO_Pin7)
     {
         switch(GroupName)
         {
             case DIO_GroupA:
-                *InputState = PINA;
+                ToggleBit(PORTA_REG, PinNo);
                 break;
 
             case DIO_GroupB:
-                *InputState = PINB;
+                ToggleBit(PORTB_REG, PinNo);
                 break;
 
             case DIO_GroupC:
-                *InputState = PINC;
+                ToggleBit(PORTC_REG, PinNo);
                 break;
 
             case DIO_GroupD:
-                *InputState = PIND;
+                ToggleBit(PORTD_REG, PinNo);
                 break;
 
             default:
-                /* Error */
+                /* Invalid Group */
                 break;
         }
     }
     else
     {
-        /* Null Pointer */
+        /* Invalid Pin */
     }
 }
 
-void DIO_TogglePin(const uint8_t GroupName,
-                   const uint8_t PinNo)
+void DIO_ToggleGroup(
+    const uint8_t GroupName)
 {
     switch(GroupName)
     {
         case DIO_GroupA:
-            ToggleBit(PORTA, PinNo);
+            PORTA_REG =
+                (uint8_t)(~PORTA_REG);
             break;
 
         case DIO_GroupB:
-            ToggleBit(PORTB, PinNo);
+            PORTB_REG =
+                (uint8_t)(~PORTB_REG);
             break;
 
         case DIO_GroupC:
-            ToggleBit(PORTC, PinNo);
+            PORTC_REG =
+                (uint8_t)(~PORTC_REG);
             break;
 
         case DIO_GroupD:
-            ToggleBit(PORTD, PinNo);
+            PORTD_REG =
+                (uint8_t)(~PORTD_REG);
             break;
 
         default:
-            /* Error */
-            break;
-    }
-}
-
-void DIO_ToggleGroup(const uint8_t GroupName)
-{
-    switch(GroupName)
-    {
-        case DIO_GroupA:
-            PORTA = (uint8_t)(~PORTA);
-            break;
-
-        case DIO_GroupB:
-            PORTB = (uint8_t)(~PORTB);
-            break;
-
-        case DIO_GroupC:
-            PORTC = (uint8_t)(~PORTC);
-            break;
-
-        case DIO_GroupD:
-            PORTD = (uint8_t)(~PORTD);
-            break;
-
-        default:
-            /* Error */
+            /* Invalid Group */
             break;
     }
 }

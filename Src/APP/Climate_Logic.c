@@ -1,11 +1,9 @@
 #include "Climate_Logic.h"
 
-#include "../HAL/RELAY/RELAY_Interface.h"
 #include "../HAL/BUZZER/BUZZER_Interface.h"
-
-#include "../MCAL/TIMER0/TIMER0_Interface.h"
-
-#include <stdint.h>
+#include "../HAL/LED/LED_Interface.h"
+#include "../HAL/LED/LED_Config.h"
+#include "../HAL/RELAY/RELAY_Interface.h"
 
 static SystemMode_t G_tenuSystemMode =
     MODE_STANDBY;
@@ -13,153 +11,112 @@ static SystemMode_t G_tenuSystemMode =
 static SystemState_t G_tenuSystemState =
     CLIMATE_OK;
 
-static u8 G_u8TargetTemperature =
-    DEFAULT_TARGET_TEMP;
+static u8 G_u8MinimumTemperature =
+    DEFAULT_MIN_TEMPERATURE;
 
-static u8 G_u8TargetMoisture =
-    DEFAULT_TARGET_MOISTURE;
+static u8 G_u8MaximumTemperature =
+    DEFAULT_MAX_TEMPERATURE;
+
+static u8 G_u8MinimumMoisture =
+    DEFAULT_MIN_MOISTURE;
 
 static u8 G_u8FanState = 0U;
 static u8 G_u8HeaterState = 0U;
 static u8 G_u8PumpState = 0U;
 
-static u8 G_u8PumpCooldownActive = 0U;
-
-static uint32_t G_u32PumpStartTime = 0UL;
-static uint32_t G_u32PumpCooldownStartTime = 0UL;
-
 static void Climate_vTurnFanOn(void)
 {
     Relay_TurnOn(RELAY_FAN);
-
     G_u8FanState = 1U;
 }
 
 static void Climate_vTurnFanOff(void)
 {
     Relay_TurnOff(RELAY_FAN);
-
     G_u8FanState = 0U;
 }
 
 static void Climate_vTurnHeaterOn(void)
 {
     Relay_TurnOn(RELAY_HEATER);
-
     G_u8HeaterState = 1U;
 }
 
 static void Climate_vTurnHeaterOff(void)
 {
     Relay_TurnOff(RELAY_HEATER);
-
     G_u8HeaterState = 0U;
 }
 
 static void Climate_vTurnPumpOn(void)
 {
-    /*
-     * Do not start the pump during
-     * its protection cooldown period.
-     */
-
-    if((G_u8PumpState == 0U) &&
-       (G_u8PumpCooldownActive == 0U))
-    {
-        Relay_TurnOn(RELAY_PUMP);
-
-        G_u8PumpState = 1U;
-
-        G_u32PumpStartTime =
-            TIMER0_GetMilliseconds();
-    }
+    Relay_TurnOn(RELAY_PUMP);
+    G_u8PumpState = 1U;
 }
 
 static void Climate_vTurnPumpOff(void)
 {
     Relay_TurnOff(RELAY_PUMP);
-
     G_u8PumpState = 0U;
 }
 
-static void Climate_vResetPumpProtection(void)
+static void Climate_vTurnAlarmOn(void)
 {
-    G_u8PumpCooldownActive = 0U;
+    Buzzer_On();
 
-    G_u32PumpStartTime = 0UL;
-    G_u32PumpCooldownStartTime = 0UL;
+    Led_On(
+        ALARM_LED_GROUP,
+        ALARM_LED_PIN,
+        ALARM_LED_CONNECTION_TYPE);
 }
 
-static void Climate_vUpdatePumpProtection(void)
+static void Climate_vTurnAlarmOff(void)
 {
-    uint32_t Local_u32CurrentTime;
+    Buzzer_Off();
 
-    Local_u32CurrentTime =
-        TIMER0_GetMilliseconds();
-
-    /*
-     * Stop the pump if it has operated
-     * continuously for too long.
-     */
-
-    if(G_u8PumpState == 1U)
-    {
-        if((Local_u32CurrentTime -
-            G_u32PumpStartTime) >=
-           PUMP_MAX_RUN_TIME_MS)
-        {
-            Climate_vTurnPumpOff();
-
-            G_u8PumpCooldownActive = 1U;
-
-            G_u32PumpCooldownStartTime =
-                Local_u32CurrentTime;
-        }
-    }
-
-    /*
-     * Allow the pump to start again
-     * after the cooldown period.
-     */
-
-    if(G_u8PumpCooldownActive == 1U)
-    {
-        if((Local_u32CurrentTime -
-            G_u32PumpCooldownStartTime) >=
-           PUMP_COOLDOWN_TIME_MS)
-        {
-            G_u8PumpCooldownActive = 0U;
-        }
-    }
+    Led_Off(
+        ALARM_LED_GROUP,
+        ALARM_LED_PIN,
+        ALARM_LED_CONNECTION_TYPE);
 }
 
 static void Climate_vUpdateAutomaticTemperature(
     u8 Local_u8Temperature)
 {
     if(Local_u8Temperature >=
-       AUTO_FAN_ON_TEMP)
+       G_u8MaximumTemperature)
     {
-        Climate_vTurnFanOn();
         Climate_vTurnHeaterOff();
+        Climate_vTurnFanOn();
     }
     else if(Local_u8Temperature <=
-            AUTO_HEATER_ON_TEMP)
+            G_u8MinimumTemperature)
     {
         Climate_vTurnFanOff();
         Climate_vTurnHeaterOn();
     }
     else
     {
+        /*
+         * Fan remains ON until temperature
+         * falls below its OFF threshold.
+         */
         if((G_u8FanState == 1U) &&
            (Local_u8Temperature <=
-            AUTO_FAN_OFF_TEMP))
+            (u8)(G_u8MaximumTemperature -
+                 TEMPERATURE_HYSTERESIS)))
         {
             Climate_vTurnFanOff();
         }
 
+        /*
+         * Heater remains ON until temperature
+         * rises above its OFF threshold.
+         */
         if((G_u8HeaterState == 1U) &&
            (Local_u8Temperature >=
-            AUTO_HEATER_OFF_TEMP))
+            (u8)(G_u8MinimumTemperature +
+                 TEMPERATURE_HYSTERESIS)))
         {
             Climate_vTurnHeaterOff();
         }
@@ -170,12 +127,13 @@ static void Climate_vUpdateAutomaticMoisture(
     u8 Local_u8Moisture)
 {
     if(Local_u8Moisture <=
-       AUTO_PUMP_ON_MOISTURE)
+       G_u8MinimumMoisture)
     {
         Climate_vTurnPumpOn();
     }
     else if(Local_u8Moisture >=
-            AUTO_PUMP_OFF_MOISTURE)
+            (u8)(G_u8MinimumMoisture +
+                 MOISTURE_HYSTERESIS))
     {
         Climate_vTurnPumpOff();
     }
@@ -185,78 +143,12 @@ static void Climate_vUpdateAutomaticMoisture(
     }
 }
 
-static void Climate_vUpdateManualTemperature(
-    u8 Local_u8Temperature)
-{
-    /*
-     * Example when target is 40:
-     *
-     * Fan ON at 42 and OFF at 40.
-     * Heater ON at 38 and OFF at 40.
-     */
-
-    if(Local_u8Temperature >=
-       (u8)(G_u8TargetTemperature +
-            MANUAL_TEMP_TOLERANCE))
-    {
-        Climate_vTurnFanOn();
-        Climate_vTurnHeaterOff();
-    }
-    else if((Local_u8Temperature +
-             MANUAL_TEMP_TOLERANCE) <=
-            G_u8TargetTemperature)
-    {
-        Climate_vTurnFanOff();
-        Climate_vTurnHeaterOn();
-    }
-    else
-    {
-        if((G_u8FanState == 1U) &&
-           (Local_u8Temperature <=
-            G_u8TargetTemperature))
-        {
-            Climate_vTurnFanOff();
-        }
-
-        if((G_u8HeaterState == 1U) &&
-           (Local_u8Temperature >=
-            G_u8TargetTemperature))
-        {
-            Climate_vTurnHeaterOff();
-        }
-    }
-}
-
-static void Climate_vUpdateManualMoisture(
-    u8 Local_u8Moisture)
-{
-    /*
-     * Example when target is 50:
-     *
-     * Pump ON at 45 and OFF at 50.
-     */
-
-    if((Local_u8Moisture +
-        MANUAL_MOIST_TOLERANCE) <=
-       G_u8TargetMoisture)
-    {
-        Climate_vTurnPumpOn();
-    }
-    else if(Local_u8Moisture >=
-            G_u8TargetMoisture)
-    {
-        Climate_vTurnPumpOff();
-    }
-    else
-    {
-        /* Keep Previous Pump State */
-    }
-}
-
-static void Climate_vUpdateAlarm(
+static u8 Climate_u8UpdateAlarm(
     u8 Local_u8Temperature,
     u8 Local_u8Moisture)
 {
+    u8 Local_u8CriticalState = 0U;
+
     if((Local_u8Temperature >=
         CRITICAL_HIGH_TEMP) ||
        (Local_u8Temperature <=
@@ -264,67 +156,39 @@ static void Climate_vUpdateAlarm(
        (Local_u8Moisture <=
         CRITICAL_LOW_MOISTURE))
     {
-        Buzzer_On();
+        Climate_vTurnAlarmOn();
 
         G_tenuSystemState =
             CLIMATE_CRITICAL_EMERGENCY;
+
+        Local_u8CriticalState = 1U;
     }
     else
     {
-        Buzzer_Off();
+        Climate_vTurnAlarmOff();
     }
+
+    return Local_u8CriticalState;
 }
 
-static void Climate_vUpdateAutomaticState(
+static void Climate_vUpdateState(
     u8 Local_u8Temperature,
     u8 Local_u8Moisture)
 {
     if(Local_u8Temperature >=
-       AUTO_FAN_ON_TEMP)
+       G_u8MaximumTemperature)
     {
         G_tenuSystemState =
             CLIMATE_HIGH_TEMP;
     }
     else if(Local_u8Temperature <=
-            AUTO_HEATER_ON_TEMP)
+            G_u8MinimumTemperature)
     {
         G_tenuSystemState =
             CLIMATE_LOW_TEMP;
     }
     else if(Local_u8Moisture <=
-            AUTO_PUMP_ON_MOISTURE)
-    {
-        G_tenuSystemState =
-            CLIMATE_LOW_MOISTURE;
-    }
-    else
-    {
-        G_tenuSystemState =
-            CLIMATE_OK;
-    }
-}
-
-static void Climate_vUpdateManualState(
-    u8 Local_u8Temperature,
-    u8 Local_u8Moisture)
-{
-    if(Local_u8Temperature >=
-       (u8)(G_u8TargetTemperature +
-            MANUAL_TEMP_TOLERANCE))
-    {
-        G_tenuSystemState =
-            CLIMATE_HIGH_TEMP;
-    }
-    else if((Local_u8Temperature +
-             MANUAL_TEMP_TOLERANCE) <=
-            G_u8TargetTemperature)
-    {
-        G_tenuSystemState =
-            CLIMATE_LOW_TEMP;
-    }
-    else if((Local_u8Moisture +
-             MANUAL_MOIST_TOLERANCE) <=
-            G_u8TargetMoisture)
+            G_u8MinimumMoisture)
     {
         G_tenuSystemState =
             CLIMATE_LOW_MOISTURE;
@@ -344,13 +208,14 @@ void Climate_vInit(void)
     G_tenuSystemState =
         CLIMATE_OK;
 
-    G_u8TargetTemperature =
-        DEFAULT_TARGET_TEMP;
+    G_u8MinimumTemperature =
+        DEFAULT_MIN_TEMPERATURE;
 
-    G_u8TargetMoisture =
-        DEFAULT_TARGET_MOISTURE;
+    G_u8MaximumTemperature =
+        DEFAULT_MAX_TEMPERATURE;
 
-    Climate_vResetPumpProtection();
+    G_u8MinimumMoisture =
+        DEFAULT_MIN_MOISTURE;
 
     Climate_vStopSystem();
 }
@@ -378,43 +243,154 @@ SystemMode_t Climate_tenuGetMode(void)
     return G_tenuSystemMode;
 }
 
-void Climate_vSetManualTargets(
-    u8 Local_u8TargetTemperature,
-    u8 Local_u8TargetMoisture)
+u8 Climate_u8SetAutomaticThresholds(
+    u8 Local_u8MinimumTemperature,
+    u8 Local_u8MaximumTemperature,
+    u8 Local_u8MinimumMoisture)
 {
-    if((Local_u8TargetTemperature >=
-        MIN_TARGET_TEMP) &&
-       (Local_u8TargetTemperature <=
-        MAX_TARGET_TEMP))
+    u8 Local_u8Status = 0U;
+
+    if((Local_u8MinimumTemperature >=
+        MIN_CONFIG_TEMPERATURE) &&
+       (Local_u8MinimumTemperature <=
+        MAX_CONFIG_TEMPERATURE) &&
+       (Local_u8MaximumTemperature >=
+        MIN_CONFIG_TEMPERATURE) &&
+       (Local_u8MaximumTemperature <=
+        MAX_CONFIG_TEMPERATURE) &&
+       ((u8)(Local_u8MinimumTemperature +
+             MIN_TEMPERATURE_GAP) <=
+        Local_u8MaximumTemperature) &&
+       (Local_u8MinimumMoisture >=
+        MIN_CONFIG_MOISTURE) &&
+       (Local_u8MinimumMoisture <=
+        MAX_CONFIG_MOISTURE))
     {
-        G_u8TargetTemperature =
-            Local_u8TargetTemperature;
+        G_u8MinimumTemperature =
+            Local_u8MinimumTemperature;
+
+        G_u8MaximumTemperature =
+            Local_u8MaximumTemperature;
+
+        G_u8MinimumMoisture =
+            Local_u8MinimumMoisture;
+
+        Local_u8Status = 1U;
+    }
+    else
+    {
+        /* Invalid Threshold Values */
     }
 
-    if((Local_u8TargetMoisture >=
-        MIN_TARGET_MOISTURE) &&
-       (Local_u8TargetMoisture <=
-        MAX_TARGET_MOISTURE))
+    return Local_u8Status;
+}
+
+u8 Climate_u8GetMinimumTemperature(void)
+{
+    return G_u8MinimumTemperature;
+}
+
+u8 Climate_u8GetMaximumTemperature(void)
+{
+    return G_u8MaximumTemperature;
+}
+
+u8 Climate_u8GetMinimumMoisture(void)
+{
+    return G_u8MinimumMoisture;
+}
+
+void Climate_vSetManualActuator(
+    ClimateActuator_t Local_tenuActuator,
+    u8 Local_u8State)
+{
+    if((G_tenuSystemMode == MODE_MANUAL) &&
+       ((Local_u8State ==
+         CLIMATE_ACTUATOR_OFF) ||
+        (Local_u8State ==
+         CLIMATE_ACTUATOR_ON)))
     {
-        G_u8TargetMoisture =
-            Local_u8TargetMoisture;
+        if(Local_tenuActuator ==
+           CLIMATE_PUMP)
+        {
+            if(Local_u8State ==
+               CLIMATE_ACTUATOR_ON)
+            {
+                Climate_vTurnPumpOn();
+            }
+            else
+            {
+                Climate_vTurnPumpOff();
+            }
+        }
+        else if(Local_tenuActuator ==
+                CLIMATE_FAN)
+        {
+            if(Local_u8State ==
+               CLIMATE_ACTUATOR_ON)
+            {
+                /*
+                 * Fan and heater must not
+                 * operate at the same time.
+                 */
+                Climate_vTurnHeaterOff();
+                Climate_vTurnFanOn();
+            }
+            else
+            {
+                Climate_vTurnFanOff();
+            }
+        }
+        else if(Local_tenuActuator ==
+                CLIMATE_HEATER)
+        {
+            if(Local_u8State ==
+               CLIMATE_ACTUATOR_ON)
+            {
+                /*
+                 * Heater and fan must not
+                 * operate at the same time.
+                 */
+                Climate_vTurnFanOff();
+                Climate_vTurnHeaterOn();
+            }
+            else
+            {
+                Climate_vTurnHeaterOff();
+            }
+        }
+        else
+        {
+            /* Invalid Actuator */
+        }
+    }
+    else
+    {
+        /* Not Manual Mode or Invalid State */
     }
 }
 
-u8 Climate_u8GetTargetTemperature(void)
+u8 Climate_u8GetPumpState(void)
 {
-    return G_u8TargetTemperature;
+    return G_u8PumpState;
 }
 
-u8 Climate_u8GetTargetMoisture(void)
+u8 Climate_u8GetFanState(void)
 {
-    return G_u8TargetMoisture;
+    return G_u8FanState;
+}
+
+u8 Climate_u8GetHeaterState(void)
+{
+    return G_u8HeaterState;
 }
 
 void Climate_vUpdateSystem(
     u8 Local_u8Temperature,
     u8 Local_u8Moisture)
 {
+    u8 Local_u8CriticalState;
+
     if((Local_u8Temperature >
         SENSOR_MAX_TEMPERATURE) ||
        (Local_u8Moisture >
@@ -422,13 +398,13 @@ void Climate_vUpdateSystem(
     {
         Climate_vHandleSensorError();
     }
+    else if(G_tenuSystemMode ==
+            MODE_STANDBY)
+    {
+        Climate_vStopSystem();
+    }
     else
     {
-        G_tenuSystemState =
-            CLIMATE_OK;
-
-        Climate_vUpdatePumpProtection();
-
         if(G_tenuSystemMode ==
            MODE_AUTOMATIC)
         {
@@ -437,51 +413,26 @@ void Climate_vUpdateSystem(
 
             Climate_vUpdateAutomaticMoisture(
                 Local_u8Moisture);
-
-            Climate_vUpdateAlarm(
-                Local_u8Temperature,
-                Local_u8Moisture);
-
-            if(G_tenuSystemState !=
-               CLIMATE_CRITICAL_EMERGENCY)
-            {
-                Climate_vUpdateAutomaticState(
-                    Local_u8Temperature,
-                    Local_u8Moisture);
-            }
-        }
-        else if(G_tenuSystemMode ==
-                MODE_MANUAL)
-        {
-            Climate_vUpdateManualTemperature(
-                Local_u8Temperature);
-
-            Climate_vUpdateManualMoisture(
-                Local_u8Moisture);
-
-            Climate_vUpdateAlarm(
-                Local_u8Temperature,
-                Local_u8Moisture);
-
-            if(G_tenuSystemState !=
-               CLIMATE_CRITICAL_EMERGENCY)
-            {
-                Climate_vUpdateManualState(
-                    Local_u8Temperature,
-                    Local_u8Moisture);
-            }
         }
         else
         {
-            Climate_vStopSystem();
+            /*
+             * Manual Mode:
+             * Do not change actuator states.
+             */
         }
 
-        /*
-         * Check again because the pump may
-         * have started during this update.
-         */
+        Local_u8CriticalState =
+            Climate_u8UpdateAlarm(
+                Local_u8Temperature,
+                Local_u8Moisture);
 
-        Climate_vUpdatePumpProtection();
+        if(Local_u8CriticalState == 0U)
+        {
+            Climate_vUpdateState(
+                Local_u8Temperature,
+                Local_u8Moisture);
+        }
     }
 }
 
@@ -496,9 +447,7 @@ void Climate_vHandleSensorError(void)
     Climate_vTurnHeaterOff();
     Climate_vTurnPumpOff();
 
-    Climate_vResetPumpProtection();
-
-    Buzzer_On();
+    Climate_vTurnAlarmOn();
 
     G_tenuSystemState =
         CLIMATE_SENSOR_ERROR;
@@ -510,9 +459,7 @@ void Climate_vStopSystem(void)
     Climate_vTurnHeaterOff();
     Climate_vTurnPumpOff();
 
-    Climate_vResetPumpProtection();
-
-    Buzzer_Off();
+    Climate_vTurnAlarmOff();
 
     G_tenuSystemState =
         CLIMATE_OK;

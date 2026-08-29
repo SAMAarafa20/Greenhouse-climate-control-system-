@@ -3,26 +3,35 @@
 #include "../HAL/BUZZER/BUZZER_Interface.h"
 #include "../HAL/KEYPAD/KEYPAD_Interface.h"
 #include "../HAL/LCD/LCD_Interface.h"
+#include "../HAL/LED/LED_Interface.h"
+#include "../HAL/LED/LED_Config.h"
 #include "../HAL/RELAY/RELAY_Interface.h"
 #include "../HAL/SOIL_SENSOR/SOIL_SENSOR_Interface.h"
 #include "../HAL/TEMP_SENSOR/TEMP_SENSOR_Interface.h"
 
+#include "../MCAL/DIO/DIO_interface.h"
+#include "../MCAL/EXTI/EXTI_Interface.h"
 #include "../MCAL/GIE/GIE_Interface.h"
 #include "../MCAL/TIMER0/TIMER0_Interface.h"
 
 #include <stdint.h>
 
-/* Sensor Reading Period */
+#define APP_SENSOR_PERIOD_MS          500UL
+#define APP_BUTTON_DEBOUNCE_MS        200UL
 
-#define APP_SENSOR_PERIOD_MS        500UL
+#define APP_MODE_BUTTON_GROUP         DIO_GroupD
+#define APP_MODE_BUTTON_PIN           DIO_Pin2
 
 typedef enum
 {
     APP_MODE_MENU = 0,
     APP_MANUAL_SCREEN,
     APP_AUTOMATIC_SCREEN,
-    APP_EDIT_TEMPERATURE,
-    APP_EDIT_MOISTURE
+    APP_CONFIG_MENU,
+    APP_EDIT_MIN_TEMP,
+    APP_EDIT_MAX_TEMP,
+    APP_EDIT_MIN_MOISTURE,
+    APP_CONFIG_ERROR
 
 } AppScreen_t;
 
@@ -37,6 +46,10 @@ static uint8_t G_u8InputDigits = 0U;
 
 static uint32_t G_u32LastSensorTime = 0UL;
 static uint32_t G_u32LastDisplayTime = 0UL;
+static uint32_t G_u32LastButtonTime = 0UL;
+
+static volatile uint8_t
+    G_u8ModeToggleRequest = 0U;
 
 static void App_vWriteText(
     const char *Text)
@@ -90,8 +103,23 @@ static void App_vWriteNumber(
     }
 }
 
+static void App_vWriteActuatorState(
+    uint8_t State)
+{
+    if(State == CLIMATE_ACTUATOR_ON)
+    {
+        LCD_WriteChar('1');
+    }
+    else
+    {
+        LCD_WriteChar('0');
+    }
+}
+
 static void App_vShowWelcome(void)
 {
+    uint32_t Local_u32StartTime;
+
     LCD_Clear();
 
     LCD_GoToXY(0U, 0U);
@@ -100,21 +128,13 @@ static void App_vShowWelcome(void)
     LCD_GoToXY(1U, 0U);
     App_vWriteText("Greenhouse");
 
-    /*
-     * Timer0 continues operating.
-     * This delay is only for the
-     * startup welcome screen.
-     */
+    Local_u32StartTime =
+        TIMER0_GetMilliseconds();
 
+    while((TIMER0_GetMilliseconds() -
+           Local_u32StartTime) < 1500UL)
     {
-        uint32_t LocalStartTime =
-            TIMER0_GetMilliseconds();
-
-        while((TIMER0_GetMilliseconds() -
-               LocalStartTime) < 1500UL)
-        {
-            /* Welcome Screen */
-        }
+        /* Startup Welcome Screen */
     }
 }
 
@@ -133,58 +153,56 @@ static void App_vShowManualScreen(void)
 {
     App_vClearLine(0U);
 
-    App_vWriteText("T:");
-    App_vWriteNumber(G_u8Temperature);
+    App_vWriteText("MAN P:");
+    App_vWriteActuatorState(
+        Climate_u8GetPumpState());
 
-    App_vWriteText(">");
-    App_vWriteNumber(
-        Climate_u8GetTargetTemperature());
+    App_vWriteText(" F:");
+    App_vWriteActuatorState(
+        Climate_u8GetFanState());
 
-    App_vWriteText(" M:");
-    App_vWriteNumber(G_u8Moisture);
-
-    App_vWriteText(">");
-    App_vWriteNumber(
-        Climate_u8GetTargetMoisture());
+    App_vWriteText(" H:");
+    App_vWriteActuatorState(
+        Climate_u8GetHeaterState());
 
     App_vClearLine(1U);
 
-    App_vWriteText("1:T 2:M C:Back");
+    App_vWriteText("1:P 2:F 3:H =:S");
 }
 
 static void App_vWriteSystemState(void)
 {
-    SystemState_t LocalState =
+    SystemState_t Local_tenuState =
         Climate_tenuGetState();
 
-    if(LocalState == CLIMATE_OK)
+    if(Local_tenuState == CLIMATE_OK)
     {
         App_vWriteText("OK");
     }
-    else if(LocalState ==
+    else if(Local_tenuState ==
             CLIMATE_HIGH_TEMP)
     {
-        App_vWriteText("HIGH TEMP");
+        App_vWriteText("HIGH");
     }
-    else if(LocalState ==
+    else if(Local_tenuState ==
             CLIMATE_LOW_TEMP)
     {
-        App_vWriteText("LOW TEMP");
+        App_vWriteText("LOW");
     }
-    else if(LocalState ==
+    else if(Local_tenuState ==
             CLIMATE_LOW_MOISTURE)
     {
-        App_vWriteText("DRY SOIL");
+        App_vWriteText("DRY");
     }
-    else if(LocalState ==
+    else if(Local_tenuState ==
             CLIMATE_CRITICAL_EMERGENCY)
     {
         App_vWriteText("CRITICAL");
     }
-    else if(LocalState ==
+    else if(Local_tenuState ==
             CLIMATE_SENSOR_ERROR)
     {
-        App_vWriteText("SENSOR ERROR");
+        App_vWriteText("SENSOR ERR");
     }
     else
     {
@@ -196,7 +214,7 @@ static void App_vShowAutomaticScreen(void)
 {
     App_vClearLine(0U);
 
-    App_vWriteText("AUTO T:");
+    App_vWriteText("A T:");
     App_vWriteNumber(G_u8Temperature);
 
     App_vWriteText(" M:");
@@ -206,16 +224,41 @@ static void App_vShowAutomaticScreen(void)
 
     App_vWriteSystemState();
 
-    LCD_GoToXY(1U, 10U);
-    App_vWriteText("C:Back");
+    LCD_GoToXY(1U, 9U);
+    App_vWriteText("=:S C:X");
 }
 
-static void App_vShowTemperatureInput(void)
+static void App_vShowConfigMenu(void)
 {
     LCD_Clear();
 
     LCD_GoToXY(0U, 0U);
-    App_vWriteText("Target Temp:");
+    App_vWriteText("1:MinT 2:MaxT");
+
+    LCD_GoToXY(1U, 0U);
+    App_vWriteText("3:Moist C:Back");
+}
+
+static void App_vShowInputScreen(void)
+{
+    LCD_Clear();
+
+    LCD_GoToXY(0U, 0U);
+
+    if(G_tenuCurrentScreen ==
+       APP_EDIT_MIN_TEMP)
+    {
+        App_vWriteText("Minimum Temp:");
+    }
+    else if(G_tenuCurrentScreen ==
+            APP_EDIT_MAX_TEMP)
+    {
+        App_vWriteText("Maximum Temp:");
+    }
+    else
+    {
+        App_vWriteText("Minimum Moist:");
+    }
 
     LCD_GoToXY(1U, 0U);
 
@@ -233,55 +276,70 @@ static void App_vShowTemperatureInput(void)
     App_vWriteText("=:OK C:X");
 }
 
-static void App_vShowMoistureInput(void)
+static void App_vShowConfigError(void)
 {
     LCD_Clear();
 
     LCD_GoToXY(0U, 0U);
-    App_vWriteText("Target Moist:");
+    App_vWriteText("Invalid Value");
 
     LCD_GoToXY(1U, 0U);
+    App_vWriteText("C:Config Menu");
+}
 
-    if(G_u8InputDigits == 0U)
+static void App_vReturnToOperatingScreen(void)
+{
+    if(Climate_tenuGetMode() ==
+       MODE_MANUAL)
     {
-        App_vWriteText("__");
+        G_tenuCurrentScreen =
+            APP_MANUAL_SCREEN;
+
+        App_vShowManualScreen();
+    }
+    else if(Climate_tenuGetMode() ==
+            MODE_AUTOMATIC)
+    {
+        G_tenuCurrentScreen =
+            APP_AUTOMATIC_SCREEN;
+
+        App_vShowAutomaticScreen();
     }
     else
     {
-        App_vWriteNumber(
-            G_u8InputValue);
-    }
+        G_tenuCurrentScreen =
+            APP_MODE_MENU;
 
-    LCD_GoToXY(1U, 5U);
-    App_vWriteText("=:OK C:X");
+        App_vShowModeMenu();
+    }
 }
 
 static void App_vUpdateSensors(void)
 {
-    uint32_t LocalCurrentTime =
+    uint32_t Local_u32CurrentTime =
         TIMER0_GetMilliseconds();
 
-    uint8_t LocalTempStatus;
-    uint8_t LocalMoistureStatus;
+    uint8_t Local_u8TempStatus;
+    uint8_t Local_u8MoistureStatus;
 
-    if((LocalCurrentTime -
+    if((Local_u32CurrentTime -
         G_u32LastSensorTime) >=
        APP_SENSOR_PERIOD_MS)
     {
         G_u32LastSensorTime =
-            LocalCurrentTime;
+            Local_u32CurrentTime;
 
-        LocalTempStatus =
+        Local_u8TempStatus =
             TEMP_SENSOR_GetTemperature(
                 &G_u8Temperature);
 
-        LocalMoistureStatus =
+        Local_u8MoistureStatus =
             SOIL_SENSOR_GetMoisture(
                 &G_u8Moisture);
 
-        if((LocalTempStatus ==
+        if((Local_u8TempStatus ==
             TEMP_SENSOR_READING_OK) &&
-           (LocalMoistureStatus ==
+           (Local_u8MoistureStatus ==
             SOIL_SENSOR_READING_OK))
         {
             if(Climate_tenuGetMode() !=
@@ -301,15 +359,15 @@ static void App_vUpdateSensors(void)
 
 static void App_vUpdateDisplay(void)
 {
-    uint32_t LocalCurrentTime =
+    uint32_t Local_u32CurrentTime =
         TIMER0_GetMilliseconds();
 
-    if((LocalCurrentTime -
+    if((Local_u32CurrentTime -
         G_u32LastDisplayTime) >=
        APP_SENSOR_PERIOD_MS)
     {
         G_u32LastDisplayTime =
-            LocalCurrentTime;
+            Local_u32CurrentTime;
 
         if(G_tenuCurrentScreen ==
            APP_MANUAL_SCREEN)
@@ -329,81 +387,100 @@ static void App_vUpdateDisplay(void)
 }
 
 static void App_vStartInput(
-    AppScreen_t InputScreen)
+    AppScreen_t Local_tenuInputScreen)
 {
     G_u8InputValue = 0U;
     G_u8InputDigits = 0U;
 
     G_tenuCurrentScreen =
-        InputScreen;
+        Local_tenuInputScreen;
 
-    if(InputScreen ==
-       APP_EDIT_TEMPERATURE)
+    App_vShowInputScreen();
+}
+
+static void App_vSaveInput(void)
+{
+    uint8_t Local_u8Status = 0U;
+
+    if(G_tenuCurrentScreen ==
+       APP_EDIT_MIN_TEMP)
     {
-        App_vShowTemperatureInput();
+        Local_u8Status =
+            Climate_u8SetAutomaticThresholds(
+                G_u8InputValue,
+                Climate_u8GetMaximumTemperature(),
+                Climate_u8GetMinimumMoisture());
+    }
+    else if(G_tenuCurrentScreen ==
+            APP_EDIT_MAX_TEMP)
+    {
+        Local_u8Status =
+            Climate_u8SetAutomaticThresholds(
+                Climate_u8GetMinimumTemperature(),
+                G_u8InputValue,
+                Climate_u8GetMinimumMoisture());
+    }
+    else if(G_tenuCurrentScreen ==
+            APP_EDIT_MIN_MOISTURE)
+    {
+        Local_u8Status =
+            Climate_u8SetAutomaticThresholds(
+                Climate_u8GetMinimumTemperature(),
+                Climate_u8GetMaximumTemperature(),
+                G_u8InputValue);
     }
     else
     {
-        App_vShowMoistureInput();
+        /* Invalid Input Screen */
+    }
+
+    if(Local_u8Status == 1U)
+    {
+        G_tenuCurrentScreen =
+            APP_CONFIG_MENU;
+
+        App_vShowConfigMenu();
+    }
+    else
+    {
+        G_tenuCurrentScreen =
+            APP_CONFIG_ERROR;
+
+        App_vShowConfigError();
     }
 }
 
 static void App_vHandleInputKey(
-    uint8_t PressedKey)
+    uint8_t Local_u8PressedKey)
 {
-    if((PressedKey >= '0') &&
-       (PressedKey <= '9'))
+    if((Local_u8PressedKey >= '0') &&
+       (Local_u8PressedKey <= '9'))
     {
         if(G_u8InputDigits < 2U)
         {
             G_u8InputValue =
                 (uint8_t)(
                     (G_u8InputValue * 10U) +
-                    (PressedKey - '0'));
+                    (Local_u8PressedKey - '0'));
 
             G_u8InputDigits++;
 
-            if(G_tenuCurrentScreen ==
-               APP_EDIT_TEMPERATURE)
-            {
-                App_vShowTemperatureInput();
-            }
-            else
-            {
-                App_vShowMoistureInput();
-            }
+            App_vShowInputScreen();
         }
     }
-    else if(PressedKey == 'C')
+    else if(Local_u8PressedKey == 'C')
     {
         G_tenuCurrentScreen =
-            APP_MANUAL_SCREEN;
+            APP_CONFIG_MENU;
 
-        App_vShowManualScreen();
+        App_vShowConfigMenu();
     }
-    else if(PressedKey == '=')
+    else if(Local_u8PressedKey == '=')
     {
         if(G_u8InputDigits > 0U)
         {
-            if(G_tenuCurrentScreen ==
-               APP_EDIT_TEMPERATURE)
-            {
-                Climate_vSetManualTargets(
-                    G_u8InputValue,
-                    Climate_u8GetTargetMoisture());
-            }
-            else
-            {
-                Climate_vSetManualTargets(
-                    Climate_u8GetTargetTemperature(),
-                    G_u8InputValue);
-            }
+            App_vSaveInput();
         }
-
-        G_tenuCurrentScreen =
-            APP_MANUAL_SCREEN;
-
-        App_vShowManualScreen();
     }
     else
     {
@@ -411,13 +488,48 @@ static void App_vHandleInputKey(
     }
 }
 
+static void App_vToggleManualActuator(
+    ClimateActuator_t Local_tenuActuator)
+{
+    uint8_t Local_u8CurrentState = 0U;
+
+    if(Local_tenuActuator ==
+       CLIMATE_PUMP)
+    {
+        Local_u8CurrentState =
+            Climate_u8GetPumpState();
+    }
+    else if(Local_tenuActuator ==
+            CLIMATE_FAN)
+    {
+        Local_u8CurrentState =
+            Climate_u8GetFanState();
+    }
+    else if(Local_tenuActuator ==
+            CLIMATE_HEATER)
+    {
+        Local_u8CurrentState =
+            Climate_u8GetHeaterState();
+    }
+    else
+    {
+        /* Invalid Actuator */
+    }
+
+    Climate_vSetManualActuator(
+        Local_tenuActuator,
+        (uint8_t)(Local_u8CurrentState ^ 1U));
+
+    App_vShowManualScreen();
+}
+
 static void App_vHandleKey(
-    uint8_t PressedKey)
+    uint8_t Local_u8PressedKey)
 {
     if(G_tenuCurrentScreen ==
        APP_MODE_MENU)
     {
-        if(PressedKey == '1')
+        if(Local_u8PressedKey == '1')
         {
             Climate_vSetMode(
                 MODE_MANUAL);
@@ -427,7 +539,7 @@ static void App_vHandleKey(
 
             App_vShowManualScreen();
         }
-        else if(PressedKey == '2')
+        else if(Local_u8PressedKey == '2')
         {
             Climate_vSetMode(
                 MODE_AUTOMATIC);
@@ -437,32 +549,40 @@ static void App_vHandleKey(
 
             App_vShowAutomaticScreen();
         }
-        else if(PressedKey == 'C')
+        else if(Local_u8PressedKey == 'C')
         {
             Climate_vSetMode(
                 MODE_STANDBY);
 
             App_vShowModeMenu();
-        }
-        else
-        {
-            /* Invalid Menu Key */
         }
     }
     else if(G_tenuCurrentScreen ==
             APP_MANUAL_SCREEN)
     {
-        if(PressedKey == '1')
+        if(Local_u8PressedKey == '1')
         {
-            App_vStartInput(
-                APP_EDIT_TEMPERATURE);
+            App_vToggleManualActuator(
+                CLIMATE_PUMP);
         }
-        else if(PressedKey == '2')
+        else if(Local_u8PressedKey == '2')
         {
-            App_vStartInput(
-                APP_EDIT_MOISTURE);
+            App_vToggleManualActuator(
+                CLIMATE_FAN);
         }
-        else if(PressedKey == 'C')
+        else if(Local_u8PressedKey == '3')
+        {
+            App_vToggleManualActuator(
+                CLIMATE_HEATER);
+        }
+        else if(Local_u8PressedKey == '=')
+        {
+            G_tenuCurrentScreen =
+                APP_CONFIG_MENU;
+
+            App_vShowConfigMenu();
+        }
+        else if(Local_u8PressedKey == 'C')
         {
             Climate_vSetMode(
                 MODE_STANDBY);
@@ -471,16 +591,19 @@ static void App_vHandleKey(
                 APP_MODE_MENU;
 
             App_vShowModeMenu();
-        }
-        else
-        {
-            /* Invalid Manual Key */
         }
     }
     else if(G_tenuCurrentScreen ==
             APP_AUTOMATIC_SCREEN)
     {
-        if(PressedKey == 'C')
+        if(Local_u8PressedKey == '=')
+        {
+            G_tenuCurrentScreen =
+                APP_CONFIG_MENU;
+
+            App_vShowConfigMenu();
+        }
+        else if(Local_u8PressedKey == 'C')
         {
             Climate_vSetMode(
                 MODE_STANDBY);
@@ -490,18 +613,50 @@ static void App_vHandleKey(
 
             App_vShowModeMenu();
         }
-        else
+    }
+    else if(G_tenuCurrentScreen ==
+            APP_CONFIG_MENU)
+    {
+        if(Local_u8PressedKey == '1')
         {
-            /* Invalid Automatic Key */
+            App_vStartInput(
+                APP_EDIT_MIN_TEMP);
+        }
+        else if(Local_u8PressedKey == '2')
+        {
+            App_vStartInput(
+                APP_EDIT_MAX_TEMP);
+        }
+        else if(Local_u8PressedKey == '3')
+        {
+            App_vStartInput(
+                APP_EDIT_MIN_MOISTURE);
+        }
+        else if(Local_u8PressedKey == 'C')
+        {
+            App_vReturnToOperatingScreen();
         }
     }
     else if((G_tenuCurrentScreen ==
-             APP_EDIT_TEMPERATURE) ||
+             APP_EDIT_MIN_TEMP) ||
             (G_tenuCurrentScreen ==
-             APP_EDIT_MOISTURE))
+             APP_EDIT_MAX_TEMP) ||
+            (G_tenuCurrentScreen ==
+             APP_EDIT_MIN_MOISTURE))
     {
         App_vHandleInputKey(
-            PressedKey);
+            Local_u8PressedKey);
+    }
+    else if(G_tenuCurrentScreen ==
+            APP_CONFIG_ERROR)
+    {
+        if(Local_u8PressedKey == 'C')
+        {
+            G_tenuCurrentScreen =
+                APP_CONFIG_MENU;
+
+            App_vShowConfigMenu();
+        }
     }
     else
     {
@@ -509,40 +664,127 @@ static void App_vHandleKey(
     }
 }
 
+static void App_vModeButtonCallback(void)
+{
+    /*
+     * ISR callback only raises a flag.
+     * No LCD or relay operation is
+     * performed inside the interrupt.
+     */
+    G_u8ModeToggleRequest = 1U;
+}
+
+static void App_vHandleModeButton(void)
+{
+    uint32_t Local_u32CurrentTime;
+
+    if(G_u8ModeToggleRequest == 1U)
+    {
+        G_u8ModeToggleRequest = 0U;
+
+        Local_u32CurrentTime =
+            TIMER0_GetMilliseconds();
+
+        if((Local_u32CurrentTime -
+            G_u32LastButtonTime) >=
+           APP_BUTTON_DEBOUNCE_MS)
+        {
+            G_u32LastButtonTime =
+                Local_u32CurrentTime;
+
+            if(Climate_tenuGetMode() ==
+               MODE_AUTOMATIC)
+            {
+                Climate_vSetMode(
+                    MODE_MANUAL);
+
+                G_tenuCurrentScreen =
+                    APP_MANUAL_SCREEN;
+
+                App_vShowManualScreen();
+            }
+            else
+            {
+                Climate_vSetMode(
+                    MODE_AUTOMATIC);
+
+                G_tenuCurrentScreen =
+                    APP_AUTOMATIC_SCREEN;
+
+                App_vShowAutomaticScreen();
+            }
+        }
+    }
+}
+
 int main(void)
 {
-    uint8_t LocalPressedKey =
+    uint8_t Local_u8PressedKey =
         KEYPAD_NO_KEY_PRESSED;
 
-    uint8_t LocalPreviousKey =
+    uint8_t Local_u8PreviousKey =
         KEYPAD_NO_KEY_PRESSED;
+
+    /*
+     * Release PORTC JTAG pins before
+     * initializing the LCD.
+     */
+    DIO_DisableJTAG();
+
+    /*
+     * Initialize Mode Button:
+     * PD2 input with Internal Pull-up.
+     */
+    DIO_DirectionSelectforPin(
+        APP_MODE_BUTTON_GROUP,
+        APP_MODE_BUTTON_PIN,
+        DIO_Inputfor1Pin);
+
+    DIO_WritePin(
+        APP_MODE_BUTTON_GROUP,
+        APP_MODE_BUTTON_PIN,
+        DIO_Highfor1Pin);
 
     /*
      * Initialize HAL Drivers.
      */
-
     LCD_Init();
     KeyPad_Init();
 
     Relay_Init();
     Buzzer_Init();
 
+    Led_Init(
+        ALARM_LED_GROUP,
+        ALARM_LED_PIN);
+
+    Led_Off(
+        ALARM_LED_GROUP,
+        ALARM_LED_PIN,
+        ALARM_LED_CONNECTION_TYPE);
+
     TEMP_SENSOR_Init();
     SOIL_SENSOR_Init();
 
     /*
-     * Initialize Timer0 System Tick.
+     * Initialize Timer0 and INT0
+     * before enabling global interrupts.
      */
-
     TIMER0_Init();
+
+    EXTI_INT0_Init();
+
+    (void)EXTI_INT0_SetCallback(
+        App_vModeButtonCallback);
+
+    EXTI_INT0_Enable();
+
     GIE_Enable();
     TIMER0_Start();
 
     /*
-     * Initialize Application Logic
-     * after actuator drivers.
+     * Initialize Application Logic.
      */
-
     Climate_vInit();
 
     App_vShowWelcome();
@@ -554,30 +796,30 @@ int main(void)
     G_u32LastDisplayTime =
         TIMER0_GetMilliseconds();
 
+    G_u32LastButtonTime =
+        TIMER0_GetMilliseconds();
+
     while(1)
     {
+        App_vHandleModeButton();
+
         App_vUpdateSensors();
         App_vUpdateDisplay();
 
-        LocalPressedKey =
+        Local_u8PressedKey =
             KeyPad_GetPressedKey();
 
-        /*
-         * Execute the key only once when
-         * it changes from released to pressed.
-         */
-
-        if((LocalPressedKey !=
+        if((Local_u8PressedKey !=
             KEYPAD_NO_KEY_PRESSED) &&
-           (LocalPreviousKey ==
+           (Local_u8PreviousKey ==
             KEYPAD_NO_KEY_PRESSED))
         {
             App_vHandleKey(
-                LocalPressedKey);
+                Local_u8PressedKey);
         }
 
-        LocalPreviousKey =
-            LocalPressedKey;
+        Local_u8PreviousKey =
+            Local_u8PressedKey;
     }
 
     return 0;

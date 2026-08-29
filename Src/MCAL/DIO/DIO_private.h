@@ -3,24 +3,49 @@
 
 #include <stdint.h>
 
-/* Group A Registers */
-#define PORTA   *((volatile uint8_t*)0x3B)
-#define DDRA    *((volatile uint8_t*)0x3A)
-#define PINA    *((volatile uint8_t*)0x39)
+/*
+ * ATmega32 Port A Registers
+ */
 
-/* Group B Registers */
-#define PORTB   *((volatile uint8_t*)0x38)
-#define DDRB    *((volatile uint8_t*)0x37)
-#define PINB    *((volatile uint8_t*)0x36)
+#define PORTA_REG    (*((volatile uint8_t *)0x3B))
+#define DDRA_REG     (*((volatile uint8_t *)0x3A))
+#define PINA_REG     (*((volatile uint8_t *)0x39))
 
-/* Group C Registers */
-#define PORTC   *((volatile uint8_t*)0x35)
-#define DDRC    *((volatile uint8_t*)0x34)
-#define PINC    *((volatile uint8_t*)0x33)
+/*
+ * ATmega32 Port B Registers
+ */
 
-/* Group D Registers */
-#define PORTD   *((volatile uint8_t*)0x32)
-#define DDRD    *((volatile uint8_t*)0x31)
-#define PIND    *((volatile uint8_t*)0x30)
+#define PORTB_REG    (*((volatile uint8_t *)0x38))
+#define DDRB_REG     (*((volatile uint8_t *)0x37))
+#define PINB_REG     (*((volatile uint8_t *)0x36))
+
+/*
+ * ATmega32 Port C Registers
+ */
+
+#define PORTC_REG    (*((volatile uint8_t *)0x35))
+#define DDRC_REG     (*((volatile uint8_t *)0x34))
+#define PINC_REG     (*((volatile uint8_t *)0x33))
+
+/*
+ * ATmega32 Port D Registers
+ */
+
+#define PORTD_REG    (*((volatile uint8_t *)0x32))
+#define DDRD_REG     (*((volatile uint8_t *)0x31))
+#define PIND_REG     (*((volatile uint8_t *)0x30))
+
+/*
+ * JTAG Disable Registers
+ */
+
+#define DIO_MCUCSR_REG    \
+    (*((volatile uint8_t *)0x54))
+
+#define DIO_SREG_REG      \
+    (*((volatile uint8_t *)0x5F))
+
+#define DIO_JTD_BIT                   7U
+#define DIO_GLOBAL_INTERRUPT_BIT      7U
 
 #endif /* DIO_PRIVATE_H_ */
